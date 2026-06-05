@@ -10,6 +10,9 @@
   let overlayKind = null;
   let overlayPlacement = "below-start";
   let contextField = null;
+  let lastStorageCommandId = null;
+  let lastCommandSignature = "";
+  let lastCommandAt = 0;
 
   function isEditableField(element) {
     if (!element || !(element instanceof HTMLElement)) {
@@ -48,6 +51,20 @@
 
   function getFieldValue(field) {
     return String(field.value || "").trim();
+  }
+
+  function isSelectPlaceholder(field) {
+    if (field.tagName.toLowerCase() !== "select") {
+      return false;
+    }
+
+    const selected = field.options[field.selectedIndex];
+    const text = String(selected ? selected.textContent : field.value || "").trim().toLowerCase();
+    return !field.value || ["select", "select...", "please select", "choose", "choose..."].includes(text);
+  }
+
+  function hasFillValue(field) {
+    return getFieldValue(field).length > 0 && !isSelectPlaceholder(field);
   }
 
   function clamp(value, min, max) {
@@ -166,6 +183,29 @@
     wrapper.append(header, content);
     panel.append(wrapper);
     panel.hidden = false;
+  }
+
+  function showToast(message) {
+    const panel = ensureOverlay();
+    panel.innerHTML = "";
+
+    const toast = document.createElement("div");
+    toast.className = "autofill-toast";
+    toast.textContent = message;
+
+    panel.append(toast);
+    panel.hidden = false;
+    overlayKind = "toast";
+    overlayPlacement = "above-end";
+
+    const field = getTargetField() || activeField || document.body;
+    positionOverlayNear(field, overlayPlacement);
+
+    window.setTimeout(() => {
+      if (overlayKind === "toast") {
+        hideOverlay();
+      }
+    }, 1800);
   }
 
   async function showSuggestions(field, classification) {
@@ -400,7 +440,50 @@
     fillField(target, entry.value);
     await window.AutoFillStore.recordUsage(entry.id, window.AutoFillClassifier.getFieldSignals(target));
     hideOverlay();
+    showToast(`Filled ${entry.label}`);
     return { filled: 1 };
+  }
+
+  function scoreEntryForField(entry, field, classification) {
+    if (classification && classification.best) {
+      return entry.typeId === classification.best.id ? 100 + classification.best.score : 0;
+    }
+
+    const signals = window.AutoFillClassifier.getFieldSignals(field);
+    const directText = signals.directText || signals.text;
+    let score = 0;
+
+    (entry.aliases || []).forEach((alias) => {
+      const normalizedAlias = window.AutoFillClassifier.normalizeText(alias);
+      if (normalizedAlias && directText.includes(normalizedAlias)) {
+        score += normalizedAlias.length > 8 ? 8 : 5;
+      }
+    });
+
+    const label = window.AutoFillClassifier.normalizeText(entry.label);
+    if (label && directText.includes(label)) {
+      score += 10;
+    }
+
+    return score;
+  }
+
+  function bestEntryForField(vault, field) {
+    const classification = window.AutoFillClassifier.classifyField(field);
+    return vault.entries
+      .map((entry) => ({
+        entry,
+        classification,
+        score: scoreEntryForField(entry, field, classification)
+      }))
+      .filter((candidate) => candidate.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+
+        return b.entry.usageCount - a.entry.usageCount;
+      })[0] || null;
   }
 
   async function fillAllAvailable() {
@@ -408,30 +491,55 @@
     let filled = 0;
 
     for (const field of visibleEditableFields()) {
-      if (getFieldValue(field)) {
+      if (hasFillValue(field)) {
         continue;
       }
 
-      const classification = window.AutoFillClassifier.classifyField(field);
-      const suggestions = window.AutoFillStore.getSuggestions(vault, classification, 1);
-      const suggestion = suggestions[0];
+      const candidate = bestEntryForField(vault, field);
 
-      if (!suggestion) {
+      if (!candidate) {
         continue;
       }
 
-      fillField(field, suggestion.value);
+      fillField(field, candidate.entry.value);
       filled += 1;
-      await window.AutoFillStore.recordUsage(suggestion.id, classification.signals);
+      await window.AutoFillStore.recordUsage(
+        candidate.entry.id,
+        candidate.classification ? candidate.classification.signals : window.AutoFillClassifier.getFieldSignals(field)
+      );
     }
 
     hideOverlay();
+    if (filled || window.top === window) {
+      showToast(filled ? `Autofilled ${filled} ${filled === 1 ? "field" : "fields"}` : "No matching fields found");
+    }
     return { filled };
+  }
+
+  function shouldSkipCommand(message) {
+    const signature = `${message.type}:${message.entryId || ""}`;
+    const now = Date.now();
+
+    if (signature === lastCommandSignature && now - lastCommandAt < 1000) {
+      return true;
+    }
+
+    lastCommandSignature = signature;
+    lastCommandAt = now;
+    return false;
   }
 
   function handleRuntimeMessage(message) {
     if (!message || typeof message.type !== "string") {
       return undefined;
+    }
+
+    if (message.targetUrl && normalizeCommandUrl(message.targetUrl) !== normalizeCommandUrl(window.location.href)) {
+      return { skipped: true };
+    }
+
+    if (shouldSkipCommand(message)) {
+      return { skipped: true };
     }
 
     if (message.type === "easyfill:fill-entry") {
@@ -443,6 +551,16 @@
     }
 
     return undefined;
+  }
+
+  function normalizeCommandUrl(value) {
+    try {
+      const url = new URL(value);
+      url.hash = "";
+      return url.href;
+    } catch (error) {
+      return String(value || "").split("#")[0];
+    }
   }
 
   function handleRuntimeMessageCompat(message, sender, sendResponse) {
@@ -460,6 +578,23 @@
     return undefined;
   }
 
+  function handleStorageCommand(command) {
+    if (!command || !command.id || command.id === lastStorageCommandId) {
+      return;
+    }
+
+    lastStorageCommandId = command.id;
+    handleRuntimeMessage(command);
+  }
+
+  function handleStorageChange(changes, areaName) {
+    if (areaName !== "local" || !changes.easyfillCommand) {
+      return;
+    }
+
+    handleStorageCommand(changes.easyfillCommand.newValue);
+  }
+
   document.addEventListener("focusin", handleFocus);
   document.addEventListener("input", handleInput);
   document.addEventListener("mousedown", handleClickOutside);
@@ -469,5 +604,13 @@
 
   if (window.AutoFillBrowser.runtime && window.AutoFillBrowser.runtime.onMessage) {
     window.AutoFillBrowser.runtime.onMessage.addListener(handleRuntimeMessageCompat);
+  }
+
+  if (
+    window.AutoFillBrowser.runtime
+    && window.AutoFillBrowser.runtime.storage
+    && window.AutoFillBrowser.runtime.storage.onChanged
+  ) {
+    window.AutoFillBrowser.runtime.storage.onChanged.addListener(handleStorageChange);
   }
 })();

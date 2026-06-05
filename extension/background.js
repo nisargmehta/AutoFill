@@ -3,6 +3,7 @@ const usesPromiseApi = typeof browser !== "undefined";
 const MENU_ROOT_ID = "easyfill-root";
 const MENU_FILL_ALL_ID = "easyfill-fill-all";
 const MENU_RECENT_PREFIX = "easyfill-recent:";
+const COMMAND_STORAGE_KEY = "easyfillCommand";
 const RECENT_LIMIT = 5;
 
 function storageGet(key) {
@@ -132,18 +133,36 @@ async function rebuildContextMenus() {
   }));
 }
 
-function sendTabMessage(tabId, message) {
+function sendTabMessage(tabId, message, options) {
   if (!tabId || !extensionApi.tabs) {
     return Promise.resolve();
   }
 
   if (usesPromiseApi) {
-    return extensionApi.tabs.sendMessage(tabId, message).catch(() => {});
+    return extensionApi.tabs.sendMessage(tabId, message, options).catch(() => {});
   }
 
   return new Promise((resolve) => {
-    extensionApi.tabs.sendMessage(tabId, message, resolve);
+    extensionApi.tabs.sendMessage(tabId, message, options || {}, resolve);
   });
+}
+
+async function dispatchCommand(command) {
+  await storageSet({
+    [COMMAND_STORAGE_KEY]: {
+      ...command,
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      createdAt: new Date().toISOString()
+    }
+  });
+}
+
+function targetUrlFromContext(info) {
+  return info.frameUrl || info.pageUrl || "";
+}
+
+function shouldUseStorageFallback(response) {
+  return !response || response.skipped || response.filled === 0;
 }
 
 extensionApi.runtime.onInstalled.addListener(async () => {
@@ -164,21 +183,34 @@ if (extensionApi.storage && extensionApi.storage.onChanged) {
 }
 
 if (extensionApi.contextMenus) {
-  extensionApi.contextMenus.onClicked.addListener((info, tab) => {
+  extensionApi.contextMenus.onClicked.addListener(async (info, tab) => {
     if (!tab || !tab.id) {
       return;
     }
 
+    const frameOptions = typeof info.frameId === "number" ? { frameId: info.frameId } : undefined;
+    const targetUrl = targetUrlFromContext(info);
+
     if (info.menuItemId === MENU_FILL_ALL_ID) {
-      sendTabMessage(tab.id, { type: "easyfill:fill-all" });
+      const command = { type: "easyfill:fill-all", targetUrl };
+      const response = await sendTabMessage(tab.id, command, frameOptions);
+      if (shouldUseStorageFallback(response)) {
+        await dispatchCommand(command);
+      }
       return;
     }
 
     if (String(info.menuItemId).startsWith(MENU_RECENT_PREFIX)) {
-      sendTabMessage(tab.id, {
+      const entryId = String(info.menuItemId).slice(MENU_RECENT_PREFIX.length);
+      const command = {
         type: "easyfill:fill-entry",
-        entryId: String(info.menuItemId).slice(MENU_RECENT_PREFIX.length)
-      });
+        entryId,
+        targetUrl
+      };
+      const response = await sendTabMessage(tab.id, command, frameOptions);
+      if (shouldUseStorageFallback(response)) {
+        await dispatchCommand(command);
+      }
     }
   });
 }

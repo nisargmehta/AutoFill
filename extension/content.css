@@ -143,3 +143,15 @@
   background: rgba(20, 32, 44, 0.08);
   color: #263545;
 }
+
+.autofill-toast {
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 9px 12px;
+  border: 1px solid rgba(20, 32, 44, 0.14);
+  border-radius: 8px;
+  background: rgba(23, 98, 173, 0.98);
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(20, 32, 44, 0.16);
+  font-size: 13px;
+  font-weight: 650;
+}
