@@ -140,19 +140,56 @@
     const pieces = [];
     const previous = field.previousElementSibling;
     const parent = field.parentElement;
+    const describedBy = field.getAttribute("aria-describedby") || "";
 
-    if (previous && previous.textContent) {
+    if (previous && previous.textContent && previous.textContent.length <= 120) {
       pieces.push(previous.textContent);
     }
 
     if (parent) {
-      const labelLike = parent.querySelector("label, span, p, div");
-      if (labelLike && labelLike !== field && labelLike.textContent) {
-        pieces.push(labelLike.textContent);
-      }
+      Array.from(parent.children || []).forEach((child) => {
+        const childTag = child.tagName ? child.tagName.toLowerCase() : "";
+        if (child === field || ["input", "textarea", "select", "button"].includes(childTag)) {
+          return;
+        }
+
+        const text = child.textContent || "";
+        if (text && text.length <= 120) {
+          pieces.push(text);
+        }
+      });
     }
 
+    describedBy.split(/\s+/).filter(Boolean).forEach((id) => {
+      const element = document.getElementById ? document.getElementById(id) : null;
+      if (element && element.textContent && element.textContent.length <= 120) {
+        pieces.push(element.textContent);
+      }
+    });
+
     return pieces.join(" ");
+  }
+
+  function scoreTokenInSignal(signals, type, token) {
+    let score = 0;
+
+    if (includesPhrase(signals.labelText, token)) {
+      score += token.length > 8 ? 9 : 7;
+    }
+
+    if (includesPhrase(signals.autocomplete, token)) {
+      score += 8;
+    }
+
+    if (signals.directText && includesPhrase(signals.directText, token)) {
+      score += token.length > 8 ? 6 : 4;
+    }
+
+    if (signals.nearbyText && includesPhrase(signals.nearbyText, token)) {
+      score += token.length > 8 ? 2 : 1;
+    }
+
+    return score;
   }
 
   function getFieldSignals(field) {
@@ -181,7 +218,19 @@
       raw: signals,
       text: normalizeText(signals.join(" ")),
       labelText: normalizeText(labelText),
-      autocomplete: normalizeText(autocomplete)
+      autocomplete: normalizeText(autocomplete),
+      directText: normalizeText([
+        field.name,
+        field.id,
+        field.placeholder,
+        autocomplete,
+        ariaLabel,
+        ariaDescription,
+        title,
+        role,
+        labelText
+      ].filter(Boolean).join(" ")),
+      nearbyText: normalizeText(nearbyText)
     };
   }
 
@@ -220,19 +269,12 @@
       const matchedTokens = [];
 
       type.tokens.forEach((token) => {
-        if (includesPhrase(signals.text, token)) {
-          score += token.length > 8 ? 4 : 3;
+        const tokenScore = scoreTokenInSignal(signals, type, token);
+        if (tokenScore > 0) {
+          score += tokenScore;
           matchedTokens.push(token);
         }
       });
-
-      if (signals.autocomplete && type.tokens.some((token) => includesPhrase(signals.autocomplete, token))) {
-        score += 4;
-      }
-
-      if (signals.labelText && type.tokens.some((token) => includesPhrase(signals.labelText, token))) {
-        score += 3;
-      }
 
       return {
         id: type.id,

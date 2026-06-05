@@ -1,12 +1,13 @@
 (function () {
   const MIN_SAVE_LENGTH = 2;
   const SUGGESTION_LIMIT = 6;
-  const SAVE_PROMPT_DELAY = 500;
+  const SAVE_PROMPT_DELAY = 1200;
 
   let activeField = null;
   let activeClassification = null;
   let savePromptTimer = null;
   let overlay = null;
+  let overlayKind = null;
   let overlayPlacement = "below-start";
 
   function isEditableField(element) {
@@ -34,6 +35,13 @@
     if (overlay) {
       overlay.hidden = true;
       overlay.innerHTML = "";
+    }
+    overlayKind = null;
+  }
+
+  function hideSavePrompt() {
+    if (overlayKind === "save-prompt") {
+      hideOverlay();
     }
   }
 
@@ -167,6 +175,7 @@
     });
 
     renderPanel("EasyFill suggestions", list);
+    overlayKind = "suggestions";
     overlayPlacement = "below-end";
     positionOverlayNear(field, overlayPlacement);
   }
@@ -204,6 +213,7 @@
     const type = getSaveType(classification, value);
 
     if (!type || !(await shouldOfferSave(field, classification, value))) {
+      hideSavePrompt();
       return;
     }
 
@@ -245,14 +255,20 @@
     prompt.append(text, saveButton, dismissButton);
     panel.append(prompt);
     panel.hidden = false;
+    overlayKind = "save-prompt";
     overlayPlacement = "save-prompt";
     positionOverlayNear(field, overlayPlacement);
   }
 
   function scheduleSavePrompt(field, classification) {
     window.clearTimeout(savePromptTimer);
+    if (getFieldValue(field).length < MIN_SAVE_LENGTH) {
+      hideSavePrompt();
+      return;
+    }
+
     savePromptTimer = window.setTimeout(() => {
-      if (field === activeField) {
+      if (field === activeField && getFieldValue(field).length >= MIN_SAVE_LENGTH) {
         showSavePrompt(field, classification);
       }
     }, SAVE_PROMPT_DELAY);
@@ -287,6 +303,7 @@
       return;
     }
 
+    hideSavePrompt();
     scheduleSavePrompt(field, activeClassification);
   }
 

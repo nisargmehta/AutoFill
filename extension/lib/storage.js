@@ -201,7 +201,11 @@
     const signalText = classification.signals.text;
     let score = 0;
 
-    if (classification.best && entry.typeId === classification.best.id) {
+    if (classification.best) {
+      if (entry.typeId !== classification.best.id) {
+        return 0;
+      }
+
       score += 20 + classification.best.score;
     }
 
