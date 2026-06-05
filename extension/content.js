@@ -139,6 +139,11 @@
   }
 
   async function showSuggestions(field, classification) {
+    if (!classification || !classification.best) {
+      hideOverlay();
+      return;
+    }
+
     const vault = await window.AutoFillStore.getVault();
     const suggestions = window.AutoFillStore.getSuggestions(vault, classification, SUGGESTION_LIMIT);
 
@@ -188,21 +193,42 @@
     return window.AutoFillClassifier.inferTypeFromValue(value);
   }
 
+  function getSaveClassification(field, classification, value) {
+    const existingClassification = classification || window.AutoFillClassifier.classifyField(field);
+    if (existingClassification && existingClassification.best) {
+      return existingClassification;
+    }
+
+    const inferredType = window.AutoFillClassifier.inferTypeFromField(field)
+      || window.AutoFillClassifier.inferTypeFromValue(value);
+
+    if (!inferredType || window.AutoFillClassifier.shouldIgnoreField(field)) {
+      return existingClassification;
+    }
+
+    const signals = existingClassification
+      ? existingClassification.signals
+      : window.AutoFillClassifier.getFieldSignals(field);
+
+    return {
+      signals,
+      best: inferredType,
+      matches: [inferredType]
+    };
+  }
+
   async function shouldOfferSave(field, classification, value) {
-    if (!value || value.length < MIN_SAVE_LENGTH || !classification) {
+    const saveClassification = getSaveClassification(field, classification, value);
+    if (!value || value.length < MIN_SAVE_LENGTH || !saveClassification) {
       return false;
     }
 
-    const type = getSaveType(classification, value);
+    const type = getSaveType(saveClassification, value);
     if (!type) {
       return false;
     }
 
     const vault = await window.AutoFillStore.getVault();
-    if (window.AutoFillStore.wasFieldDismissed(vault, classification.signals)) {
-      return false;
-    }
-
     return !vault.entries.some((entry) => {
       return entry.typeId === type.id && entry.value.toLowerCase() === value.toLowerCase();
     });
@@ -210,9 +236,10 @@
 
   async function showSavePrompt(field, classification) {
     const value = getFieldValue(field);
-    const type = getSaveType(classification, value);
+    const saveClassification = getSaveClassification(field, classification, value);
+    const type = getSaveType(saveClassification, value);
 
-    if (!type || !(await shouldOfferSave(field, classification, value))) {
+    if (!type || !(await shouldOfferSave(field, saveClassification, value))) {
       hideSavePrompt();
       return;
     }
@@ -237,7 +264,7 @@
         typeId: type.id,
         label: type.label,
         value,
-        signals: classification.signals
+        signals: saveClassification.signals
       });
       hideOverlay();
     });
@@ -247,8 +274,7 @@
     dismissButton.type = "button";
     dismissButton.textContent = "Dismiss";
     dismissButton.addEventListener("mousedown", (event) => event.preventDefault());
-    dismissButton.addEventListener("click", async () => {
-      await window.AutoFillStore.dismissField(classification.signals);
+    dismissButton.addEventListener("click", () => {
       hideOverlay();
     });
 
@@ -281,10 +307,6 @@
     }
 
     const classification = window.AutoFillClassifier.classifyField(field);
-    if (!classification) {
-      hideOverlay();
-      return;
-    }
 
     activeField = field;
     activeClassification = classification;
@@ -299,10 +321,11 @@
 
   function handleInput(event) {
     const field = event.target;
-    if (field !== activeField || !activeClassification) {
+    if (field !== activeField) {
       return;
     }
 
+    activeClassification = activeClassification || window.AutoFillClassifier.classifyField(field);
     hideSavePrompt();
     scheduleSavePrompt(field, activeClassification);
   }

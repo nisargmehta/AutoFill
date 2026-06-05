@@ -198,6 +198,7 @@
     const ariaDescription = field.getAttribute("aria-description") || "";
     const title = field.getAttribute("title") || "";
     const role = field.getAttribute("role") || "";
+    const inputType = normalizeText(field.type);
     const labelText = getLabelText(field);
     const nearbyText = getNearbyText(field);
 
@@ -206,6 +207,7 @@
       field.id,
       field.placeholder,
       autocomplete,
+      inputType,
       ariaLabel,
       ariaDescription,
       title,
@@ -224,6 +226,7 @@
         field.id,
         field.placeholder,
         autocomplete,
+        inputType,
         ariaLabel,
         ariaDescription,
         title,
@@ -299,6 +302,15 @@
       return null;
     }
 
+    if (normalized.includes("@")) {
+      return { id: "email", label: "Email", score: 6, matchedTokens: ["@"] };
+    }
+
+    const digits = normalized.replace(/\D/g, "");
+    if (digits.length >= 7 && digits.length <= 15 && /^[+()\d\s.-]+$/.test(normalized)) {
+      return { id: "phone", label: "Phone", score: 5, matchedTokens: ["phone-like value"] };
+    }
+
     const matches = FIELD_TYPES.map((type) => {
       let score = 0;
       type.valueHints.forEach((hint) => {
@@ -312,6 +324,24 @@
     return matches.sort((a, b) => b.score - a.score)[0] || null;
   }
 
+  function inferTypeFromField(field) {
+    const type = normalizeText(field && field.type);
+
+    if (type === "email") {
+      return { id: "email", label: "Email", score: 10, matchedTokens: ["email"] };
+    }
+
+    if (type === "tel") {
+      return { id: "phone", label: "Phone", score: 10, matchedTokens: ["tel"] };
+    }
+
+    if (type === "url") {
+      return { id: "portfolio", label: "Portfolio", score: 8, matchedTokens: ["url"] };
+    }
+
+    return null;
+  }
+
   function typeLabel(typeId) {
     return (FIELD_TYPES.find((type) => type.id === typeId) || {}).label || "Custom";
   }
@@ -323,6 +353,7 @@
   window.AutoFillClassifier = {
     classifyField,
     getFieldSignals,
+    inferTypeFromField,
     inferTypeFromValue,
     knownTypes,
     normalizeText,

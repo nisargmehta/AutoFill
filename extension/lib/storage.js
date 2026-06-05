@@ -221,6 +221,10 @@
   }
 
   function getSuggestions(vault, classification, limit) {
+    if (!classification || !classification.best) {
+      return [];
+    }
+
     return vault.entries
       .map((entry) => ({
         ...entry,
