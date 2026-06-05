@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EasyFill Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <div>
+          <h1>EasyFill</h1>
+          <p>Saved values stay local in this browser.</p>
+        </div>
+        <button id="add-entry" class="primary-button" type="button">Add Value</button>
+      </header>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Saved Values</h2>
+          <span id="entry-count" class="muted">0 values</span>
+        </div>
+        <div id="empty-state" class="empty-state" hidden>
+          Fill a recognized job application field, then save it from the page prompt.
+        </div>
+        <div id="entries" class="entries"></div>
+      </section>
+    </main>
+
+    <template id="entry-template">
+      <form class="entry">
+        <input type="hidden" name="id">
+        <input type="hidden" name="typeId">
+        <label>
+          <span>Label</span>
+          <input name="label" type="text" autocomplete="off">
+        </label>
+        <label class="entry-value">
+          <span>Value</span>
+          <input name="value" type="text" autocomplete="off">
+        </label>
+        <label class="entry-aliases">
+          <span>Matching field names</span>
+          <input name="aliases" type="text" autocomplete="off" placeholder="first name, given name">
+        </label>
+        <div class="entry-actions">
+          <button class="secondary-button" type="submit">Save</button>
+          <button class="danger-button" type="button" data-delete>Delete</button>
+        </div>
+      </form>
+    </template>
+
+    <script src="lib/browser-api.js"></script>
+    <script src="lib/field-classifier.js"></script>
+    <script src="lib/storage.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

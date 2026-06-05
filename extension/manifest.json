@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "EasyFill",
+  "short_name": "EasyFill",
+  "version": "0.1.0",
+  "description": "Learns form values locally and suggests them when similar fields appear.",
+  "permissions": ["storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "EasyFill",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/easyfill-16.png",
+      "32": "icons/easyfill-32.png",
+      "48": "icons/easyfill-48.png",
+      "128": "icons/easyfill-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/easyfill-16.png",
+    "32": "icons/easyfill-32.png",
+    "48": "icons/easyfill-48.png",
+    "128": "icons/easyfill-128.png"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "lib/browser-api.js",
+        "lib/field-classifier.js",
+        "lib/storage.js",
+        "content.js"
+      ],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

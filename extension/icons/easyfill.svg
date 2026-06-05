@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">EasyFill icon</title>
+  <desc id="desc">A filled document with text lines and a checkmark.</desc>
+  <rect width="128" height="128" rx="24" fill="#1762ad"/>
+  <path fill="#ffffff" d="M89 18H39c-7.2 0-13 5.8-13 13v66c0 7.2 5.8 13 13 13h50c7.2 0 13-5.8 13-13V31c0-7.2-5.8-13-13-13ZM46 40h42a5 5 0 0 1 0 10H46a5 5 0 0 1 0-10Zm0 18h42a5 5 0 0 1 0 10H46a5 5 0 0 1 0-10Zm0 18h24a5 5 0 0 1 0 10H46a5 5 0 0 1 0-10Z"/>
+  <path fill="#34c759" d="M75.3 101.4a6 6 0 0 1-8.5 0L55.4 90a6 6 0 0 1 8.5-8.5l7.2 7.2 20.2-22a6 6 0 1 1 8.8 8.1l-24.4 26.5-.4.4Z"/>
+</svg>

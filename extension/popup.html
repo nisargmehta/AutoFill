@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EasyFill</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="popup">
+      <header>
+        <h1>EasyFill</h1>
+        <span id="count">0 saved</span>
+      </header>
+      <p>Click into a recognized job application field to save or reuse values.</p>
+      <button id="open-options" type="button">Manage Values</button>
+    </main>
+    <script src="lib/browser-api.js"></script>
+    <script src="lib/field-classifier.js"></script>
+    <script src="lib/storage.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
