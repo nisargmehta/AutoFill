@@ -4,7 +4,7 @@
   "short_name": "EasyFill",
   "version": "0.1.0",
   "description": "Learns form values locally and suggests them when similar fields appear.",
-  "permissions": ["storage"],
+  "permissions": ["contextMenus", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

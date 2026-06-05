@@ -9,6 +9,7 @@
   let overlay = null;
   let overlayKind = null;
   let overlayPlacement = "below-start";
+  let contextField = null;
 
   function isEditableField(element) {
     if (!element || !(element instanceof HTMLElement)) {
@@ -110,6 +111,35 @@
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));
     field.focus();
+  }
+
+  function visibleEditableFields() {
+    return Array.from(document.querySelectorAll("input, textarea, select"))
+      .filter((field) => {
+        if (!isEditableField(field) || window.AutoFillClassifier.shouldIgnoreField(field)) {
+          return false;
+        }
+
+        const rect = field.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+  }
+
+  function getTargetField() {
+    if (contextField && isEditableField(contextField) && !window.AutoFillClassifier.shouldIgnoreField(contextField)) {
+      return contextField;
+    }
+
+    if (activeField && isEditableField(activeField) && !window.AutoFillClassifier.shouldIgnoreField(activeField)) {
+      return activeField;
+    }
+
+    const focused = document.activeElement;
+    if (isEditableField(focused) && !window.AutoFillClassifier.shouldIgnoreField(focused)) {
+      return focused;
+    }
+
+    return null;
   }
 
   function renderPanel(title, content) {
@@ -342,6 +372,11 @@
     hideOverlay();
   }
 
+  function handleContextMenu(event) {
+    const field = event.target;
+    contextField = isEditableField(field) ? field : null;
+  }
+
   function handleScrollOrResize() {
     if (!overlay || overlay.hidden || !activeField) {
       return;
@@ -350,9 +385,89 @@
     positionOverlayNear(activeField, overlayPlacement);
   }
 
+  async function fillEntryFromContext(entryId) {
+    const target = getTargetField();
+    if (!target) {
+      return { filled: 0 };
+    }
+
+    const vault = await window.AutoFillStore.getVault();
+    const entry = vault.entries.find((candidate) => candidate.id === entryId);
+    if (!entry) {
+      return { filled: 0 };
+    }
+
+    fillField(target, entry.value);
+    await window.AutoFillStore.recordUsage(entry.id, window.AutoFillClassifier.getFieldSignals(target));
+    hideOverlay();
+    return { filled: 1 };
+  }
+
+  async function fillAllAvailable() {
+    const vault = await window.AutoFillStore.getVault();
+    let filled = 0;
+
+    for (const field of visibleEditableFields()) {
+      if (getFieldValue(field)) {
+        continue;
+      }
+
+      const classification = window.AutoFillClassifier.classifyField(field);
+      const suggestions = window.AutoFillStore.getSuggestions(vault, classification, 1);
+      const suggestion = suggestions[0];
+
+      if (!suggestion) {
+        continue;
+      }
+
+      fillField(field, suggestion.value);
+      filled += 1;
+      await window.AutoFillStore.recordUsage(suggestion.id, classification.signals);
+    }
+
+    hideOverlay();
+    return { filled };
+  }
+
+  function handleRuntimeMessage(message) {
+    if (!message || typeof message.type !== "string") {
+      return undefined;
+    }
+
+    if (message.type === "easyfill:fill-entry") {
+      return fillEntryFromContext(message.entryId);
+    }
+
+    if (message.type === "easyfill:fill-all") {
+      return fillAllAvailable();
+    }
+
+    return undefined;
+  }
+
+  function handleRuntimeMessageCompat(message, sender, sendResponse) {
+    const result = handleRuntimeMessage(message);
+
+    if (result && typeof result.then === "function") {
+      result.then(sendResponse);
+      return true;
+    }
+
+    if (result !== undefined) {
+      sendResponse(result);
+    }
+
+    return undefined;
+  }
+
   document.addEventListener("focusin", handleFocus);
   document.addEventListener("input", handleInput);
   document.addEventListener("mousedown", handleClickOutside);
+  document.addEventListener("contextmenu", handleContextMenu);
   window.addEventListener("scroll", handleScrollOrResize, true);
   window.addEventListener("resize", handleScrollOrResize);
+
+  if (window.AutoFillBrowser.runtime && window.AutoFillBrowser.runtime.onMessage) {
+    window.AutoFillBrowser.runtime.onMessage.addListener(handleRuntimeMessageCompat);
+  }
 })();
