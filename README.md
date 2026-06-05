@@ -11,6 +11,10 @@ A simple local-first Safari WebExtension that learns field values as you type an
 - Stores all data locally in browser extension storage.
 - Does not send data to any server.
 
+  <img width="430" height="115" alt="Screenshot 2026-06-04 at 6 22 13 PM" src="https://github.com/user-attachments/assets/d8ecbbf6-a14f-4d27-9ded-5c1e53d8d9a1" /> <img width="477" height="140" alt="Screenshot 2026-06-04 at 10 35 57 PM" src="https://github.com/user-attachments/assets/fe49d86f-0f08-4e57-b66e-8b88e1e72b30" />
+
+
+
 ## Project layout
 
 ```text
