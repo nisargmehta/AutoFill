@@ -161,8 +161,12 @@ function targetUrlFromContext(info) {
   return info.frameUrl || info.pageUrl || "";
 }
 
-function shouldUseStorageFallback(response) {
-  return !response || response.skipped || response.filled === 0;
+function shouldUseStorageFallback(command, response) {
+  if (!response || response.skipped) {
+    return true;
+  }
+
+  return command.type === "easyfill:fill-entry" && response.filled === 0;
 }
 
 extensionApi.runtime.onInstalled.addListener(async () => {
@@ -189,12 +193,12 @@ if (extensionApi.contextMenus) {
     }
 
     const frameOptions = typeof info.frameId === "number" ? { frameId: info.frameId } : undefined;
-    const targetUrl = targetUrlFromContext(info);
+    const targetUrl = targetUrlFromContext(info) || tab.url || "";
 
     if (info.menuItemId === MENU_FILL_ALL_ID) {
       const command = { type: "easyfill:fill-all", targetUrl };
       const response = await sendTabMessage(tab.id, command, frameOptions);
-      if (shouldUseStorageFallback(response)) {
+      if (shouldUseStorageFallback(command, response)) {
         await dispatchCommand(command);
       }
       return;
@@ -208,7 +212,7 @@ if (extensionApi.contextMenus) {
         targetUrl
       };
       const response = await sendTabMessage(tab.id, command, frameOptions);
-      if (shouldUseStorageFallback(response)) {
+      if (shouldUseStorageFallback(command, response)) {
         await dispatchCommand(command);
       }
     }

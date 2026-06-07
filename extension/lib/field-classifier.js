@@ -96,6 +96,16 @@
     "query"
   ];
 
+  const CODE_EDITOR_SELECTORS = [
+    ".monaco-editor",
+    ".cm-editor",
+    ".CodeMirror",
+    ".ace_editor",
+    "[data-gramm_editor]",
+    "[data-language]",
+    "[data-mode]"
+  ].join(",");
+
   function normalizeText(value) {
     return String(value || "")
       .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -244,12 +254,18 @@
 
     const tag = field.tagName ? field.tagName.toLowerCase() : "";
     const type = normalizeText(field.type);
+    const role = normalizeText(field.getAttribute && field.getAttribute("role"));
+    const isContentEditableField = Boolean(field.isContentEditable || role === "textbox");
+
+    if (field.closest && field.closest(CODE_EDITOR_SELECTORS)) {
+      return true;
+    }
 
     if (tag === "select") {
       return false;
     }
 
-    if (tag !== "input" && tag !== "textarea") {
+    if (tag !== "input" && tag !== "textarea" && !isContentEditableField) {
       return true;
     }
 

@@ -20,7 +20,23 @@
     }
 
     const tag = element.tagName.toLowerCase();
-    return tag === "input" || tag === "textarea" || tag === "select";
+    return tag === "input"
+      || tag === "textarea"
+      || tag === "select"
+      || isContentEditableField(element);
+  }
+
+  function isContentEditableField(element) {
+    if (!element || !(element instanceof HTMLElement)) {
+      return false;
+    }
+
+    const role = String(element.getAttribute("role") || "").toLowerCase();
+    return element.isContentEditable || role === "textbox";
+  }
+
+  function isIgnoredField(field) {
+    return window.AutoFillClassifier.shouldIgnoreField(field);
   }
 
   function ensureOverlay() {
@@ -50,6 +66,10 @@
   }
 
   function getFieldValue(field) {
+    if (isContentEditableField(field) && !("value" in field)) {
+      return String(field.textContent || "").trim();
+    }
+
     return String(field.value || "").trim();
   }
 
@@ -121,6 +141,9 @@
       if (option) {
         field.value = option.value;
       }
+    } else if (isContentEditableField(field) && !("value" in field)) {
+      field.focus();
+      field.textContent = value;
     } else {
       setNativeValue(field, value);
     }
@@ -131,9 +154,11 @@
   }
 
   function visibleEditableFields() {
-    return Array.from(document.querySelectorAll("input, textarea, select"))
+    return Array.from(document.querySelectorAll(
+      "input, textarea, select, [contenteditable], [role='textbox']"
+    ))
       .filter((field) => {
-        if (!isEditableField(field) || window.AutoFillClassifier.shouldIgnoreField(field)) {
+        if (!isEditableField(field) || isIgnoredField(field)) {
           return false;
         }
 
@@ -142,18 +167,22 @@
       });
   }
 
-  function getTargetField() {
-    if (contextField && isEditableField(contextField) && !window.AutoFillClassifier.shouldIgnoreField(contextField)) {
+  function getTargetField(options) {
+    if (contextField && isEditableField(contextField) && !isIgnoredField(contextField)) {
       return contextField;
     }
 
-    if (activeField && isEditableField(activeField) && !window.AutoFillClassifier.shouldIgnoreField(activeField)) {
-      return activeField;
+    const focused = document.activeElement;
+    if (isEditableField(focused) && !isIgnoredField(focused)) {
+      return focused;
     }
 
-    const focused = document.activeElement;
-    if (isEditableField(focused) && !window.AutoFillClassifier.shouldIgnoreField(focused)) {
-      return focused;
+    if (options && options.focusedOnly) {
+      return null;
+    }
+
+    if (activeField && isEditableField(activeField) && !isIgnoredField(activeField)) {
+      return activeField;
     }
 
     return null;
@@ -255,24 +284,23 @@
     positionOverlayNear(field, overlayPlacement);
   }
 
-  function getSaveType(classification, value) {
+  function getSaveType(classification) {
     if (classification && classification.best) {
       return classification.best;
     }
 
-    return window.AutoFillClassifier.inferTypeFromValue(value);
+    return null;
   }
 
-  function getSaveClassification(field, classification, value) {
+  function getSaveClassification(field, classification) {
     const existingClassification = classification || window.AutoFillClassifier.classifyField(field);
     if (existingClassification && existingClassification.best) {
       return existingClassification;
     }
 
-    const inferredType = window.AutoFillClassifier.inferTypeFromField(field)
-      || window.AutoFillClassifier.inferTypeFromValue(value);
+    const inferredType = window.AutoFillClassifier.inferTypeFromField(field);
 
-    if (!inferredType || window.AutoFillClassifier.shouldIgnoreField(field)) {
+    if (!inferredType || isIgnoredField(field)) {
       return existingClassification;
     }
 
@@ -288,17 +316,21 @@
   }
 
   async function shouldOfferSave(field, classification, value) {
-    const saveClassification = getSaveClassification(field, classification, value);
+    const saveClassification = getSaveClassification(field, classification);
     if (!value || value.length < MIN_SAVE_LENGTH || !saveClassification) {
       return false;
     }
 
-    const type = getSaveType(saveClassification, value);
+    const type = getSaveType(saveClassification);
     if (!type) {
       return false;
     }
 
     const vault = await window.AutoFillStore.getVault();
+    if (window.AutoFillStore.wasFieldDismissed(vault, saveClassification.signals)) {
+      return false;
+    }
+
     return !vault.entries.some((entry) => {
       return entry.typeId === type.id && entry.value.toLowerCase() === value.toLowerCase();
     });
@@ -306,8 +338,8 @@
 
   async function showSavePrompt(field, classification) {
     const value = getFieldValue(field);
-    const saveClassification = getSaveClassification(field, classification, value);
-    const type = getSaveType(saveClassification, value);
+    const saveClassification = getSaveClassification(field, classification);
+    const type = getSaveType(saveClassification);
 
     if (!type || !(await shouldOfferSave(field, saveClassification, value))) {
       hideSavePrompt();
@@ -344,7 +376,8 @@
     dismissButton.type = "button";
     dismissButton.textContent = "Dismiss";
     dismissButton.addEventListener("mousedown", (event) => event.preventDefault());
-    dismissButton.addEventListener("click", () => {
+    dismissButton.addEventListener("click", async () => {
+      await window.AutoFillStore.dismissField(saveClassification.signals);
       hideOverlay();
     });
 
@@ -381,6 +414,11 @@
     activeField = field;
     activeClassification = classification;
 
+    if (isIgnoredField(field)) {
+      hideOverlay();
+      return;
+    }
+
     if (getFieldValue(field)) {
       scheduleSavePrompt(field, classification);
       return;
@@ -392,6 +430,11 @@
   function handleInput(event) {
     const field = event.target;
     if (field !== activeField) {
+      return;
+    }
+
+    if (isIgnoredField(field)) {
+      hideOverlay();
       return;
     }
 
@@ -413,8 +456,14 @@
   }
 
   function handleContextMenu(event) {
-    const field = event.target;
-    contextField = isEditableField(field) ? field : null;
+    contextField = editableFieldFromEvent(event);
+  }
+
+  function editableFieldFromEvent(event) {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+    return path.find((element) => {
+      return isEditableField(element) && !isIgnoredField(element);
+    }) || null;
   }
 
   function handleScrollOrResize() {
@@ -425,8 +474,8 @@
     positionOverlayNear(activeField, overlayPlacement);
   }
 
-  async function fillEntryFromContext(entryId) {
-    const target = getTargetField();
+  async function fillEntryFromContext(entryId, options) {
+    const target = getTargetField(options && options.fromStorage ? { focusedOnly: true } : undefined);
     if (!target) {
       return { filled: 0 };
     }
@@ -529,12 +578,24 @@
     return false;
   }
 
-  function handleRuntimeMessage(message) {
+  function handleRuntimeMessage(message, options) {
     if (!message || typeof message.type !== "string") {
       return undefined;
     }
 
-    if (message.targetUrl && normalizeCommandUrl(message.targetUrl) !== normalizeCommandUrl(window.location.href)) {
+    if (
+      options
+      && options.fromStorage
+      && (document.visibilityState === "hidden" || !document.hasFocus())
+    ) {
+      return { skipped: true };
+    }
+
+    if (
+      !options
+      && message.targetUrl
+      && normalizeCommandUrl(message.targetUrl) !== normalizeCommandUrl(window.location.href)
+    ) {
       return { skipped: true };
     }
 
@@ -543,7 +604,7 @@
     }
 
     if (message.type === "easyfill:fill-entry") {
-      return fillEntryFromContext(message.entryId);
+      return fillEntryFromContext(message.entryId, options);
     }
 
     if (message.type === "easyfill:fill-all") {
@@ -564,7 +625,7 @@
   }
 
   function handleRuntimeMessageCompat(message, sender, sendResponse) {
-    const result = handleRuntimeMessage(message);
+    const result = handleRuntimeMessage(message, { fromRuntimeMessage: true });
 
     if (result && typeof result.then === "function") {
       result.then(sendResponse);
@@ -584,7 +645,7 @@
     }
 
     lastStorageCommandId = command.id;
-    handleRuntimeMessage(command);
+    handleRuntimeMessage(command, { fromStorage: true });
   }
 
   function handleStorageChange(changes, areaName) {
